@@ -2,7 +2,7 @@
 require 'mkmf'
 
 # Give it a name
-extension_name = 'zookeeper'
+extension_name = 'c_zookeeper'
 
 # The destination
 dir_config(extension_name)
