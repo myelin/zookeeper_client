@@ -46,6 +46,18 @@ static void free_zk_rb_data(struct zk_rb_data* ptr) {
   zookeeper_close(ptr->zh);
 }
 
+static VALUE array_from_stat(const struct Stat* stat) {
+  return rb_ary_new3(8,
+		     LL2NUM(stat->czxid),
+		     LL2NUM(stat->mzxid),
+		     LL2NUM(stat->ctime),
+		     LL2NUM(stat->mtime),
+		     INT2NUM(stat->version),
+		     INT2NUM(stat->cversion),
+		     INT2NUM(stat->aversion),
+		     LL2NUM(stat->ephemeralOwner));
+}
+
 static VALUE method_initialize(VALUE self, VALUE hostPort) {
   VALUE data;
   struct zk_rb_data* zk = NULL;
@@ -54,7 +66,7 @@ static VALUE method_initialize(VALUE self, VALUE hostPort) {
 
   data = Data_Make_Struct(Zookeeper, struct zk_rb_data, 0, free_zk_rb_data, zk);
 
-  zoo_set_debug_level(LOG_LEVEL_DEBUG);
+  zoo_set_debug_level(LOG_LEVEL_INFO);
   zoo_deterministic_conn_order(1); // enable deterministic order
   zk->zh = zookeeper_init(RSTRING(hostPort)->ptr, NULL, 10000, &zk->myid, 0, 0);
   if (!zk->zh) {
@@ -84,6 +96,18 @@ static VALUE method_ls(VALUE self, VALUE path) {
   return output;
 }
 
+static VALUE method_exists(VALUE self, VALUE path) {
+  struct zk_rb_data* zk;
+  struct Stat stat;
+
+  Check_Type(path, T_STRING);
+  Data_Get_Struct(rb_iv_get(self, "@data"), struct zk_rb_data, zk);
+
+  check_errors(zoo_exists(zk->zh, RSTRING(path)->ptr, 0, &stat));
+
+  return array_from_stat(&stat);
+}
+
 static VALUE method_create(VALUE self, VALUE path, VALUE value, VALUE flags) {
   struct zk_rb_data* zk;
   char realpath[10240];
@@ -99,12 +123,23 @@ static VALUE method_create(VALUE self, VALUE path, VALUE value, VALUE flags) {
   return rb_str_new2(realpath);
 }
 
+static VALUE method_delete(VALUE self, VALUE path, VALUE version) {
+  struct zk_rb_data* zk;
+
+  Check_Type(path, T_STRING);
+  Check_Type(version, T_FIXNUM);
+  Data_Get_Struct(rb_iv_get(self, "@data"), struct zk_rb_data, zk);
+
+  check_errors(zoo_delete(zk->zh, RSTRING(path)->ptr, FIX2INT(version)));
+
+  return Qnil;
+}
+
 static VALUE method_get(VALUE self, VALUE path) {
   struct zk_rb_data* zk;
   char data[1024];
   int data_len = 1024;
   struct Stat stat;
-  VALUE output;
 
   Check_Type(path, T_STRING);
   Data_Get_Struct(rb_iv_get(self, "@data"), struct zk_rb_data, zk);
@@ -112,10 +147,9 @@ static VALUE method_get(VALUE self, VALUE path) {
   check_errors(zoo_get(zk->zh, RSTRING(path)->ptr, 0, data, &data_len, &stat));
   /*printf("got some data; version=%d\n", stat.version);*/
 
-  output = rb_ary_new();
-  rb_ary_push(output, rb_str_new(data, data_len));
-  rb_ary_push(output, INT2FIX(stat.version));
-  return output;
+  return rb_ary_new3(2,
+		     rb_str_new(data, data_len),
+		     array_from_stat(&stat));
 }
 
 static VALUE method_set(VALUE self, VALUE path, VALUE data, VALUE version) {
@@ -133,11 +167,17 @@ static VALUE method_set(VALUE self, VALUE path, VALUE data, VALUE version) {
 
 void Init_c_zookeeper() {
   Zookeeper = rb_define_class("CZookeeper", rb_cObject);
-  eNoNode = rb_define_class_under(Zookeeper, "NoNodeError", rb_eRuntimeError);
-  eBadVersion = rb_define_class_under(Zookeeper, "BadVersionError", rb_eRuntimeError);
   rb_define_method(Zookeeper, "initialize", method_initialize, 1);
   rb_define_method(Zookeeper, "ls", method_ls, 1);
+  rb_define_method(Zookeeper, "exists", method_exists, 1);
   rb_define_method(Zookeeper, "create", method_create, 3);
+  rb_define_method(Zookeeper, "delete", method_delete, 2);
   rb_define_method(Zookeeper, "get", method_get, 1);
   rb_define_method(Zookeeper, "set", method_set, 3);
+
+  eNoNode = rb_define_class_under(Zookeeper, "NoNodeError", rb_eRuntimeError);
+  eBadVersion = rb_define_class_under(Zookeeper, "BadVersionError", rb_eRuntimeError);
+
+  rb_define_const(Zookeeper, "EPHEMERAL", INT2FIX(EPHEMERAL));
+  rb_define_const(Zookeeper, "SEQUENCE", INT2FIX(SEQUENCE));
 }
