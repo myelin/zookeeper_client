@@ -1,4 +1,4 @@
-/* Ruby wrapper for the Zookeeper C API
+/* Ruby wrapper for the ZooKeeper C API
  * Phillip Pearson <pp@myelin.co.nz>
  */
 
@@ -11,7 +11,7 @@
 
 #include <stdio.h>
 
-static VALUE Zookeeper = Qnil;
+static VALUE ZooKeeper = Qnil;
 static VALUE eNoNode = Qnil;
 static VALUE eBadVersion = Qnil;
 
@@ -74,7 +74,7 @@ static VALUE method_initialize(VALUE self, VALUE hostPort) {
 
   Check_Type(hostPort, T_STRING);
 
-  data = Data_Make_Struct(Zookeeper, struct zk_rb_data, 0, free_zk_rb_data, zk);
+  data = Data_Make_Struct(ZooKeeper, struct zk_rb_data, 0, free_zk_rb_data, zk);
 
   zoo_set_debug_level(LOG_LEVEL_INFO);
   zoo_deterministic_conn_order(0);
@@ -176,23 +176,23 @@ static VALUE method_set(VALUE self, VALUE path, VALUE data, VALUE version) {
 }
 
 void Init_c_zookeeper() {
-  Zookeeper = rb_define_class("CZookeeper", rb_cObject);
-  rb_define_method(Zookeeper, "initialize", method_initialize, 1);
-  rb_define_method(Zookeeper, "ls", method_ls, 1);
-  rb_define_method(Zookeeper, "exists", method_exists, 2);
-  rb_define_method(Zookeeper, "create", method_create, 3);
-  rb_define_method(Zookeeper, "delete", method_delete, 2);
-  rb_define_method(Zookeeper, "get", method_get, 1);
-  rb_define_method(Zookeeper, "set", method_set, 3);
+  ZooKeeper = rb_define_class("CZooKeeper", rb_cObject);
+  rb_define_method(ZooKeeper, "initialize", method_initialize, 1);
+  rb_define_method(ZooKeeper, "ls", method_ls, 1);
+  rb_define_method(ZooKeeper, "exists", method_exists, 2);
+  rb_define_method(ZooKeeper, "create", method_create, 3);
+  rb_define_method(ZooKeeper, "delete", method_delete, 2);
+  rb_define_method(ZooKeeper, "get", method_get, 1);
+  rb_define_method(ZooKeeper, "set", method_set, 3);
 
-  eNoNode = rb_define_class_under(Zookeeper, "NoNodeError", rb_eRuntimeError);
-  eBadVersion = rb_define_class_under(Zookeeper, "BadVersionError", rb_eRuntimeError);
+  eNoNode = rb_define_class_under(ZooKeeper, "NoNodeError", rb_eRuntimeError);
+  eBadVersion = rb_define_class_under(ZooKeeper, "BadVersionError", rb_eRuntimeError);
 
-  rb_define_const(Zookeeper, "EPHEMERAL", INT2FIX(EPHEMERAL));
-  rb_define_const(Zookeeper, "SEQUENCE", INT2FIX(SEQUENCE));
+  rb_define_const(ZooKeeper, "EPHEMERAL", INT2FIX(EPHEMERAL));
+  rb_define_const(ZooKeeper, "SEQUENCE", INT2FIX(SEQUENCE));
 
-  rb_define_const(Zookeeper, "SESSION_EVENT", INT2FIX(SESSION_EVENT));
-  rb_define_const(Zookeeper, "CONNECTED_STATE", INT2FIX(CONNECTED_STATE));
-  rb_define_const(Zookeeper, "AUTH_FAILED_STATE", INT2FIX(AUTH_FAILED_STATE));
-  rb_define_const(Zookeeper, "EXPIRED_SESSION_STATE", INT2FIX(EXPIRED_SESSION_STATE));
+  rb_define_const(ZooKeeper, "SESSION_EVENT", INT2FIX(SESSION_EVENT));
+  rb_define_const(ZooKeeper, "CONNECTED_STATE", INT2FIX(CONNECTED_STATE));
+  rb_define_const(ZooKeeper, "AUTH_FAILED_STATE", INT2FIX(AUTH_FAILED_STATE));
+  rb_define_const(ZooKeeper, "EXPIRED_SESSION_STATE", INT2FIX(EXPIRED_SESSION_STATE));
 }
