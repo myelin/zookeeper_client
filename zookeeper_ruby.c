@@ -1,3 +1,7 @@
+/* Ruby wrapper for the Zookeeper C API
+ * Phillip Pearson <pp@myelin.co.nz>
+ */
+
 #include "ruby.h"
 
 #include "c-client-src/zookeeper.h"
