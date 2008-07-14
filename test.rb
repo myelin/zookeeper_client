@@ -37,12 +37,25 @@ rescue Zookeeper::NoNodeError
   puts "doesn't exist - good, because we just deleted it!"
 end
 
+puts "trying a watcher"
+puts z
+if s = z.stat("/test"); z.delete("/test", s.version); end
+z.create("/test", "foo", 0)
+z.exists("/test") do
+  puts "callback!!!"
+end
+puts "now changing it"
+z.set("/test", "bar", 0)
+sleep 1
+puts "did the watcher say something?"
+
 puts "let's try using a lock"
 z.try_acquire("/test_lock", "this is the content of the lock file") do |have_lock|
   puts have_lock ? "we have the lock!" : "failed to obtain lock :("
   if have_lock
-    puts "sleeping 5 secs"
+    puts "sleeping"
     sleep 5
   end
 end
 puts "done with locking..."
+

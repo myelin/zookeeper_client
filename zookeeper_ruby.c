@@ -2,6 +2,8 @@
  * Phillip Pearson <pp@myelin.co.nz>
  */
 
+#define THREADED
+
 #include "ruby.h"
 
 #include "c-client-src/zookeeper.h"
@@ -18,9 +20,17 @@ struct zk_rb_data {
   clientid_t myid;
 };
 
-/*static void watcher(zhandle_t *zzh, int type, int state, const char *path) {
-  fprintf(stderr,"Watcher %d state = %d for %s\n", type, state, (path ? path: "null"));
-  }*/
+static void watcher(zhandle_t *zh, int type, int state, const char *path) {
+  VALUE self, watcher_id;
+
+  return; // watchers don't work in ruby yet
+
+  self = (VALUE)zoo_get_context(zh);;
+  watcher_id = rb_intern("watcher");
+
+  fprintf(stderr,"C watcher %d state = %d for %s.\n", type, state, (path ? path: "null"));
+  rb_funcall(self, watcher_id, 3, INT2FIX(type), INT2FIX(state), rb_str_new2(path));
+}
 
 static void check_errors(int rc) {
   switch (rc) {
@@ -67,8 +77,8 @@ static VALUE method_initialize(VALUE self, VALUE hostPort) {
   data = Data_Make_Struct(Zookeeper, struct zk_rb_data, 0, free_zk_rb_data, zk);
 
   zoo_set_debug_level(LOG_LEVEL_INFO);
-  zoo_deterministic_conn_order(1); // enable deterministic order
-  zk->zh = zookeeper_init(RSTRING(hostPort)->ptr, NULL, 10000, &zk->myid, 0, 0);
+  zoo_deterministic_conn_order(0);
+  zk->zh = zookeeper_init(RSTRING(hostPort)->ptr, watcher, 10000, &zk->myid, (void*)self, 0);
   if (!zk->zh) {
     rb_raise(rb_eRuntimeError, "error connecting to zookeeper: %d", errno);
   }
@@ -96,14 +106,14 @@ static VALUE method_ls(VALUE self, VALUE path) {
   return output;
 }
 
-static VALUE method_exists(VALUE self, VALUE path) {
+static VALUE method_exists(VALUE self, VALUE path, VALUE watch) {
   struct zk_rb_data* zk;
   struct Stat stat;
 
   Check_Type(path, T_STRING);
   Data_Get_Struct(rb_iv_get(self, "@data"), struct zk_rb_data, zk);
 
-  check_errors(zoo_exists(zk->zh, RSTRING(path)->ptr, 0, &stat));
+  check_errors(zoo_exists(zk->zh, RSTRING(path)->ptr, (watch != Qfalse && watch != Qnil), &stat));
 
   return array_from_stat(&stat);
 }
@@ -169,7 +179,7 @@ void Init_c_zookeeper() {
   Zookeeper = rb_define_class("CZookeeper", rb_cObject);
   rb_define_method(Zookeeper, "initialize", method_initialize, 1);
   rb_define_method(Zookeeper, "ls", method_ls, 1);
-  rb_define_method(Zookeeper, "exists", method_exists, 1);
+  rb_define_method(Zookeeper, "exists", method_exists, 2);
   rb_define_method(Zookeeper, "create", method_create, 3);
   rb_define_method(Zookeeper, "delete", method_delete, 2);
   rb_define_method(Zookeeper, "get", method_get, 1);
@@ -180,4 +190,9 @@ void Init_c_zookeeper() {
 
   rb_define_const(Zookeeper, "EPHEMERAL", INT2FIX(EPHEMERAL));
   rb_define_const(Zookeeper, "SEQUENCE", INT2FIX(SEQUENCE));
+
+  rb_define_const(Zookeeper, "SESSION_EVENT", INT2FIX(SESSION_EVENT));
+  rb_define_const(Zookeeper, "CONNECTED_STATE", INT2FIX(CONNECTED_STATE));
+  rb_define_const(Zookeeper, "AUTH_FAILED_STATE", INT2FIX(AUTH_FAILED_STATE));
+  rb_define_const(Zookeeper, "EXPIRED_SESSION_STATE", INT2FIX(EXPIRED_SESSION_STATE));
 }
