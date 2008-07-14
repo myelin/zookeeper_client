@@ -28,16 +28,6 @@ puts "set: #{z.set(path, "this is a test", stat.version).inspect}"
 value, stat = z.get(path)
 puts "new value: #{value.inspect} #{stat.inspect}"
 
-puts "let's try using a lock"
-z.try_acquire("/test_lock", "this is the content of the lock file") do |have_lock|
-  puts have_lock ? "we have the lock!" : "failed to obtain lock :("
-  if have_lock
-    puts "sleeping 10 secs"
-    sleep 10
-  end
-end
-puts "done with locking..."
-
 puts "delete: #{z.delete(path, stat.version).inspect}"
 
 begin
@@ -47,3 +37,12 @@ rescue Zookeeper::NoNodeError
   puts "doesn't exist - good, because we just deleted it!"
 end
 
+puts "let's try using a lock"
+z.try_acquire("/test_lock", "this is the content of the lock file") do |have_lock|
+  puts have_lock ? "we have the lock!" : "failed to obtain lock :("
+  if have_lock
+    puts "sleeping 5 secs"
+    sleep 5
+  end
+end
+puts "done with locking..."

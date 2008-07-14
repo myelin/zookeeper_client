@@ -27,28 +27,30 @@ class Zookeeper < CZookeeper
   end
 
   def try_acquire(path, value)
+    # create the parent node if it doesn't exist already
     create(path, "lock node", 0) unless stat(path)
 
     # attempt to obtain the lock
     realpath = create("#{path}/lock-", value, Zookeeper::EPHEMERAL | Zookeeper::SEQUENCE)
-    puts "created lock node #{realpath}"
+    #puts "created lock node #{realpath}"
 
     # see if we got it
     serial = /lock-(\d+)$/.match(realpath).captures[0].to_i
-    child_serials = ls(path).map { |child|
+    have_lock = true
+    ls(path).each do |child|
       if m = /lock-(\d+)$/.match(child)
-        m.captures[0].to_i
-      else
-        nil
+        if m.captures[0].to_i < serial
+          have_lock = false
+          break
+        end
       end
-    } .reject { |n| n.nil? }
-    puts "  my serial is #{serial}; child serials are #{child_serials.inspect}"
-    have_lock = (serial == child_serials.min)
+    end
 
     # call block
     yield(have_lock)
 
     # release the lock
+    #puts "deleting #{realpath}"
     delete(realpath, stat(realpath).version)
   end
 end
