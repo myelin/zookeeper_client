@@ -1,0 +1,98 @@
+zookeeper_client
+    by Phillip Pearson
+    http://github.com/myelin/zookeeper_client
+
+== DESCRIPTION:
+
+zookeeper_client is a Ruby library to interface with the ZooKeeper
+replicated object store / lock server.
+
+Project maturity: early alpha.  Working, although very chatty and
+there may be bugs to do with threading.  Expect to get your hands
+dirty.
+
+== REQUIREMENTS:
+
+* ZooKeeper C client library (http://zookeeper.sourceforge.net/)
+
+  See installation instructions in c/README, in the ZooKeeper source
+  distribution.  zookeeper_client expects the headers to live in
+  /usr/include/c-client-src/, which doesn't feel right but is where
+  they go on my system when I run 'make install'.
+
+== INSTALL:
+
+  $ gem sources -a http://gems.github.com/
+  $ gem install myelin-zookeeper_client
+
+== USAGE:
+
+= Connect to a server
+
+  require 'rubygems'
+  require 'myelin-zookeeper_client'
+  z = ZooKeeper.new("localhost:2181")
+
+= Create, set and read nodes
+
+  z.create("/bacon", "text to be stored in the new node", 0)
+  # => "/bacon"
+
+  data, stat = z.get("/bacon")
+  # => ["text to be stored in the new node", #<ZkStat:0xb771be54 @ephemeralOwner=0, @ctime=1216196667669, @aversion=0, @mzxid=1008, @cversion=0, @version=0, @czxid=1008, @mtime=1216196667669>]
+
+  z.set("/bacon", "an entirely different line of text", stat.version)
+  # => nil
+
+  z.set("/bacon", "this won't work", stat.version)
+  # CZooKeeper::BadVersionError: expected version does not match actual version
+
+  data, stat = z.get("/bacon")
+  # => ["an entirely different line of text", #<ZkStat:0xb77125d4 @ephemeralOwner=0, @ctime=1216196667669, @aversion=0, @mzxid=1009, @cversion=0, @version=1, @czxid=1008, @mtime=1216196704709>]
+
+  z.delete("/bacon", stat.version)
+  # => nil
+
+= Create ephemeral and sequence nodes
+
+  z.create("/parent", "parent node", 0)
+  # => "/parent"
+
+  z.create("/parent/test-", "an ordered node that will disappear when the connection goes down", ZooKeeper::EPHEMERAL | ZooKeeper::SEQUENCE)
+  # => "/parent/test-0"
+
+  z.create("/parent/test-", "an ordered node that will disappear when the connection goes down", ZooKeeper::EPHEMERAL | ZooKeeper::SEQUENCE)
+  # => "/parent/test-1"
+
+= Acquire locks
+
+  z.try_acquire "/parent/lock-", "content for the lock file" do |have_lock|
+    puts have_lock ? "we have the lock" : "we don't have the lock"
+  end
+  # we have the lock
+  # => nil
+
+== LICENSE:
+
+(The MIT License)
+
+Copyright (C) 2008 Phillip Pearson
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+'Software'), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
