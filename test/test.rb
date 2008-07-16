@@ -1,4 +1,5 @@
-require 'zookeeper'
+require 'rubygems'
+require 'zookeeper_client'
 
 z = ZooKeeper.new("localhost:2181")
 
