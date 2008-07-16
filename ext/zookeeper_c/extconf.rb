@@ -1,5 +1,5 @@
 require 'mkmf'
-extension_name = 'c_zookeeper'
+extension_name = 'zookeeper_c'
 dir_config(extension_name)
 
 if have_library("zookeeper_mt", "zoo_set_debug_level") then

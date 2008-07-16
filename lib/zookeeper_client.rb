@@ -1,7 +1,7 @@
 # Ruby wrapper for the ZooKeeper C API
 # Phillip Pearson <pp@myelin.co.nz>
 
-require 'c_zookeeper'
+require 'zookeeper_c'
 
 class ZkStat
   attr_reader :version
