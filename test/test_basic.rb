@@ -2,7 +2,7 @@ $LOAD_PATH << '/home/eric/zk-clients/lib'
 require 'rubygems'
 require 'zookeeper_client'
 
-z = ZooKeeper.new("sjc1k029:2181")
+z = ZooKeeper.new("localhost:2181")
 
 puts "root: #{z.ls("/").inspect}"
 
