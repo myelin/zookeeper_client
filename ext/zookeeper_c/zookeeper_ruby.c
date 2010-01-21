@@ -6,7 +6,7 @@
 
 #include "ruby.h"
 
-#include "c-client-src/zookeeper.h"
+#include "zookeeper.h"
 #include <errno.h>
 
 #include <stdio.h>
@@ -20,9 +20,9 @@ struct zk_rb_data {
   clientid_t myid;
 };
 
-static void watcher(zhandle_t *zh, int type, int state, const char *path) {
+static void watcher(zhandle_t *zh, int type, int state, const char *path, void *ctx) {
   VALUE self, watcher_id;
-
+  (void)ctx;
   return; // watchers don't work in ruby yet
 
   self = (VALUE)zoo_get_context(zh);;
@@ -76,8 +76,9 @@ static VALUE method_initialize(VALUE self, VALUE hostPort) {
 
   data = Data_Make_Struct(ZooKeeper, struct zk_rb_data, 0, free_zk_rb_data, zk);
 
-  zoo_set_debug_level(LOG_LEVEL_INFO);
+  zoo_set_debug_level(ZOO_LOG_LEVEL_INFO);
   zoo_deterministic_conn_order(0);
+
   zk->zh = zookeeper_init(RSTRING(hostPort)->ptr, watcher, 10000, &zk->myid, (void*)self, 0);
   if (!zk->zh) {
     rb_raise(rb_eRuntimeError, "error connecting to zookeeper: %d", errno);
@@ -128,7 +129,7 @@ static VALUE method_create(VALUE self, VALUE path, VALUE value, VALUE flags) {
   Data_Get_Struct(rb_iv_get(self, "@data"), struct zk_rb_data, zk);
 
   check_errors(zoo_create(zk->zh, RSTRING(path)->ptr, RSTRING(value)->ptr, RSTRING(value)->len,
-			  &OPEN_ACL_UNSAFE, FIX2INT(flags), realpath, 10240));
+			  &ZOO_OPEN_ACL_UNSAFE, FIX2INT(flags), realpath, 10240));
 
   return rb_str_new2(realpath);
 }
@@ -188,11 +189,11 @@ void Init_zookeeper_c() {
   eNoNode = rb_define_class_under(ZooKeeper, "NoNodeError", rb_eRuntimeError);
   eBadVersion = rb_define_class_under(ZooKeeper, "BadVersionError", rb_eRuntimeError);
 
-  rb_define_const(ZooKeeper, "EPHEMERAL", INT2FIX(EPHEMERAL));
-  rb_define_const(ZooKeeper, "SEQUENCE", INT2FIX(SEQUENCE));
+  rb_define_const(ZooKeeper, "ZOO_EPHEMERAL", INT2FIX(ZOO_EPHEMERAL));
+  rb_define_const(ZooKeeper, "ZOO_SEQUENCE", INT2FIX(ZOO_SEQUENCE));
 
-  rb_define_const(ZooKeeper, "SESSION_EVENT", INT2FIX(SESSION_EVENT));
-  rb_define_const(ZooKeeper, "CONNECTED_STATE", INT2FIX(CONNECTED_STATE));
-  rb_define_const(ZooKeeper, "AUTH_FAILED_STATE", INT2FIX(AUTH_FAILED_STATE));
-  rb_define_const(ZooKeeper, "EXPIRED_SESSION_STATE", INT2FIX(EXPIRED_SESSION_STATE));
+  rb_define_const(ZooKeeper, "ZOO_SESSION_EVENT", INT2FIX(ZOO_SESSION_EVENT));
+  rb_define_const(ZooKeeper, "ZOO_CONNECTED_STATE", INT2FIX(ZOO_CONNECTED_STATE));
+  rb_define_const(ZooKeeper, "ZOO_AUTH_FAILED_STATE", INT2FIX(ZOO_AUTH_FAILED_STATE));
+  rb_define_const(ZooKeeper, "ZOO_EXPIRED_SESSION_STATE", INT2FIX(ZOO_EXPIRED_SESSION_STATE));
 }

@@ -37,7 +37,7 @@ class ZooKeeper < CZooKeeper
     create(path, "lock node", 0) unless stat(path)
 
     # attempt to obtain the lock
-    realpath = create("#{path}/lock-", value, ZooKeeper::EPHEMERAL | ZooKeeper::SEQUENCE)
+    realpath = create("#{path}/lock-", value, ZooKeeper::ZOO_EPHEMERAL | ZooKeeper::ZOO_SEQUENCE)
     #puts "created lock node #{realpath}"
 
     # see if we got it
@@ -63,15 +63,15 @@ class ZooKeeper < CZooKeeper
   def watcher(type, state, path)
     raise Exception("watchers don't work in ruby yet") # ... until I figure out how to synchronize access to the Ruby interpreter
 
-    return unless type == SESSION_EVENT
+    return unless type == ZOO_SESSION_EVENT
 
     case state
-    when CONNECTED_STATE
+    when ZOO_CONNECTED_STATE
       puts "ruby watcher; got an event for #{path}"
 
-    when AUTH_FAILED_STATE
+    when ZOO_AUTH_FAILED_STATE
       raise Exception, "auth failure"
-    when EXPIRED_SESSION_STATE
+    when ZOO_EXPIRED_SESSION_STATE
       raise Exception, "session expired"
     end
   end

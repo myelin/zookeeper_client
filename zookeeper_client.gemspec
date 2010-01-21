@@ -9,7 +9,7 @@ Gem::Specification.new do |s|
   s.has_rdoc = false
   s.authors = ["Phillip Pearson"]
   s.extensions = ["ext/zookeeper_c/extconf.rb"]
-  s.files = ["lib/zookeeper_client.rb", "ext/zookeeper_c/zookeeper_ruby.c"]
+  s.files = ["lib/zookeeper_client.rb", "ext/zookeeper_c/zookeeper_c.so"]
   s.test_files = ["test/test_basic.rb"]
   #s.rdoc_options = ["--main", "README.txt"]
   #s.extra_rdoc_files = ["History.txt", "Manifest.txt", "README.txt"]
