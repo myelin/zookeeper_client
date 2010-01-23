@@ -163,15 +163,26 @@ static VALUE method_get(VALUE self, VALUE path) {
 		     array_from_stat(&stat));
 }
 
-static VALUE method_set(VALUE self, VALUE path, VALUE data, VALUE version) {
+static VALUE method_set(int argc, VALUE* argv, VALUE self)
+{
+  VALUE v_path, v_data, v_version;
   struct zk_rb_data* zk;
+  int real_version = -1;
 
-  Check_Type(path, T_STRING);
-  Check_Type(data, T_STRING);
-  Check_Type(version, T_FIXNUM);
+  rb_scan_args(argc, argv, "21", &v_path, &v_data, &v_version);
+  
+  Check_Type(v_path, T_STRING);
+  Check_Type(v_data, T_STRING);
+  Check_Type(v_version, T_FIXNUM);
+
+  if(!NIL_P(v_version))
+    real_version = FIX2INT(v_version);
+
   Data_Get_Struct(rb_iv_get(self, "@data"), struct zk_rb_data, zk);
   
-  check_errors(zoo_set(zk->zh, RSTRING(path)->ptr, RSTRING(data)->ptr, RSTRING(data)->len, FIX2INT(version)));
+  check_errors(zoo_set(zk->zh, RSTRING(v_path)->ptr, 
+                       RSTRING(v_data)->ptr, RSTRING(v_data)->len, 
+                       FIX2INT(v_version)));
 
   return Qnil;
 }
@@ -184,7 +195,7 @@ void Init_zookeeper_c() {
   rb_define_method(ZooKeeper, "create", method_create, 3);
   rb_define_method(ZooKeeper, "delete", method_delete, 2);
   rb_define_method(ZooKeeper, "get", method_get, 1);
-  rb_define_method(ZooKeeper, "set", method_set, 3);
+  rb_define_method(ZooKeeper, "set", method_set, -1);
 
   eNoNode = rb_define_class_under(ZooKeeper, "NoNodeError", rb_eRuntimeError);
   eBadVersion = rb_define_class_under(ZooKeeper, "BadVersionError", rb_eRuntimeError);
