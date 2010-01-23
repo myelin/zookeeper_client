@@ -52,7 +52,6 @@ static void check_errors(int rc) {
 }
 
 static void free_zk_rb_data(struct zk_rb_data* ptr) {
-  /*fprintf(stderr, "free zk_rb_data at %p\n", ptr);*/
   zookeeper_close(ptr->zh);
 }
 
@@ -89,7 +88,7 @@ static VALUE method_initialize(VALUE self, VALUE hostPort) {
   return Qnil;
 }
 
-static VALUE method_ls(VALUE self, VALUE path) {
+static VALUE method_get_children(VALUE self, VALUE path) {
   struct zk_rb_data* zk;
   struct String_vector strings;
   int i;
@@ -190,7 +189,7 @@ static VALUE method_set(int argc, VALUE* argv, VALUE self)
 void Init_zookeeper_c() {
   ZooKeeper = rb_define_class("CZooKeeper", rb_cObject);
   rb_define_method(ZooKeeper, "initialize", method_initialize, 1);
-  rb_define_method(ZooKeeper, "ls", method_ls, 1);
+  rb_define_method(ZooKeeper, "get_children", method_get_children, 1);
   rb_define_method(ZooKeeper, "exists", method_exists, 2);
   rb_define_method(ZooKeeper, "create", method_create, 3);
   rb_define_method(ZooKeeper, "delete", method_delete, 2);
@@ -200,11 +199,73 @@ void Init_zookeeper_c() {
   eNoNode = rb_define_class_under(ZooKeeper, "NoNodeError", rb_eRuntimeError);
   eBadVersion = rb_define_class_under(ZooKeeper, "BadVersionError", rb_eRuntimeError);
 
-  rb_define_const(ZooKeeper, "ZOO_EPHEMERAL", INT2FIX(ZOO_EPHEMERAL));
-  rb_define_const(ZooKeeper, "ZOO_SEQUENCE", INT2FIX(ZOO_SEQUENCE));
+#define EXPORT_CONST(x) { rb_define_const(ZooKeeper, #x"", INT2FIX(x)); }
 
-  rb_define_const(ZooKeeper, "ZOO_SESSION_EVENT", INT2FIX(ZOO_SESSION_EVENT));
-  rb_define_const(ZooKeeper, "ZOO_CONNECTED_STATE", INT2FIX(ZOO_CONNECTED_STATE));
-  rb_define_const(ZooKeeper, "ZOO_AUTH_FAILED_STATE", INT2FIX(ZOO_AUTH_FAILED_STATE));
-  rb_define_const(ZooKeeper, "ZOO_EXPIRED_SESSION_STATE", INT2FIX(ZOO_EXPIRED_SESSION_STATE));
+  /* create flags */
+  EXPORT_CONST(ZOO_EPHEMERAL);
+  EXPORT_CONST(ZOO_SEQUENCE);
+
+  /* 
+     session state
+  */
+  EXPORT_CONST(ZOO_EXPIRED_SESSION_STATE);
+  EXPORT_CONST(ZOO_AUTH_FAILED_STATE);
+  EXPORT_CONST(ZOO_CONNECTING_STATE);
+  EXPORT_CONST(ZOO_ASSOCIATING_STATE);
+  EXPORT_CONST(ZOO_CONNECTED_STATE);
+
+  /* notifications */
+  EXPORT_CONST(ZOOKEEPER_WRITE);
+  EXPORT_CONST(ZOOKEEPER_READ);
+
+  /* errors */
+  EXPORT_CONST(ZOK);
+  EXPORT_CONST(ZSYSTEMERROR);
+  EXPORT_CONST(ZRUNTIMEINCONSISTENCY);
+  EXPORT_CONST(ZDATAINCONSISTENCY);
+  EXPORT_CONST(ZCONNECTIONLOSS);
+  EXPORT_CONST(ZMARSHALLINGERROR);
+  EXPORT_CONST(ZUNIMPLEMENTED);
+  EXPORT_CONST(ZOPERATIONTIMEOUT);
+  EXPORT_CONST(ZBADARGUMENTS);
+  EXPORT_CONST(ZINVALIDSTATE);
+
+  /** API errors. */
+  EXPORT_CONST(ZAPIERROR);
+  EXPORT_CONST(ZNONODE);
+  EXPORT_CONST(ZNOAUTH);
+  EXPORT_CONST(ZBADVERSION);
+  EXPORT_CONST(ZNOCHILDRENFOREPHEMERALS);
+  EXPORT_CONST(ZNODEEXISTS);
+  EXPORT_CONST(ZNOTEMPTY);
+  EXPORT_CONST(ZSESSIONEXPIRED);
+  EXPORT_CONST(ZINVALIDCALLBACK);
+  EXPORT_CONST(ZINVALIDACL);
+  EXPORT_CONST(ZAUTHFAILED);
+  EXPORT_CONST(ZCLOSING);
+  EXPORT_CONST(ZNOTHING);
+  EXPORT_CONST(ZSESSIONMOVED);
+
+  /* debug levels */
+  EXPORT_CONST(ZOO_LOG_LEVEL_ERROR);
+  EXPORT_CONST(ZOO_LOG_LEVEL_WARN);
+  EXPORT_CONST(ZOO_LOG_LEVEL_INFO);
+  EXPORT_CONST(ZOO_LOG_LEVEL_DEBUG);
+
+  /* ACL constants */
+  EXPORT_CONST(ZOO_PERM_READ);
+  EXPORT_CONST(ZOO_PERM_WRITE);
+  EXPORT_CONST(ZOO_PERM_CREATE);
+  EXPORT_CONST(ZOO_PERM_DELETE);
+  EXPORT_CONST(ZOO_PERM_ADMIN);
+  EXPORT_CONST(ZOO_PERM_ALL);
+
+  /* Watch types */
+  EXPORT_CONST(ZOO_CREATED_EVENT);
+  EXPORT_CONST(ZOO_DELETED_EVENT);
+  EXPORT_CONST(ZOO_CHANGED_EVENT);
+  EXPORT_CONST(ZOO_CHILD_EVENT);
+  EXPORT_CONST(ZOO_SESSION_EVENT);
+  EXPORT_CONST(ZOO_NOTWATCHING_EVENT);
+  
 }
