@@ -188,18 +188,22 @@ static VALUE method_set(int argc, VALUE* argv, VALUE self)
 
 void Init_zookeeper_c() {
   ZooKeeper = rb_define_class("CZooKeeper", rb_cObject);
-  rb_define_method(ZooKeeper, "initialize", method_initialize, 1);
-  rb_define_method(ZooKeeper, "get_children", method_get_children, 1);
-  rb_define_method(ZooKeeper, "exists", method_exists, 2);
-  rb_define_method(ZooKeeper, "create", method_create, 3);
-  rb_define_method(ZooKeeper, "delete", method_delete, 2);
-  rb_define_method(ZooKeeper, "get", method_get, 1);
-  rb_define_method(ZooKeeper, "set", method_set, -1);
+
+#define DEFINE_METHOD(method, args) { \
+    rb_define_method(ZooKeeper, #method, method_ ## method, args); }
+
+  DEFINE_METHOD(initialize, 1);
+  DEFINE_METHOD(get_children, 1);
+  DEFINE_METHOD(exists, 2);
+  DEFINE_METHOD(create, 3);
+  DEFINE_METHOD(delete, 2);
+  DEFINE_METHOD(get, 1);
+  DEFINE_METHOD(set, -1);
 
   eNoNode = rb_define_class_under(ZooKeeper, "NoNodeError", rb_eRuntimeError);
   eBadVersion = rb_define_class_under(ZooKeeper, "BadVersionError", rb_eRuntimeError);
 
-#define EXPORT_CONST(x) { rb_define_const(ZooKeeper, #x"", INT2FIX(x)); }
+#define EXPORT_CONST(x) { rb_define_const(ZooKeeper, #x, INT2FIX(x)); }
 
   /* create flags */
   EXPORT_CONST(ZOO_EPHEMERAL);
