@@ -4,7 +4,7 @@ require 'zookeeper_client'
 
 z = ZooKeeper.new("localhost:2181")
 
-puts "root: #{z.ls("/").inspect}"
+puts "root: #{z.get_children("/").inspect}"
 
 path = "/testing_node"
 
@@ -14,7 +14,7 @@ stat = z.stat(path)
 puts "exists? #{stat.inspect}"
 
 unless stat.nil?
-  z.ls(path).each do |o|
+  z.get_children(path).each do |o|
     puts "  child object: #{o}"
   end
   puts "delete: #{z.delete(path, stat.version).inspect}"
