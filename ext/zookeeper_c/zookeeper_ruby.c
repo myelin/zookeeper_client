@@ -6,9 +6,8 @@
 
 #include "ruby.h"
 
-#include "zookeeper.h"
+#include "zookeeper/zookeeper.h"
 #include <errno.h>
-
 #include <stdio.h>
 
 static VALUE ZooKeeper = Qnil;
