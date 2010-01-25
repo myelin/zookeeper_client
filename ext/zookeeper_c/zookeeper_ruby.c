@@ -1,12 +1,13 @@
 /* Ruby wrapper for the ZooKeeper C API
  * Phillip Pearson <pp@myelin.co.nz>
+ * Eric Maland <eric@twitter.com>
  */
 
 #define THREADED
 
 #include "ruby.h"
 
-#include "zookeeper.h"
+#include "zookeeper/zookeeper.h"
 #include <errno.h>
 #include <stdio.h>
 
