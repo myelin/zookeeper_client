@@ -4,7 +4,7 @@ Manifest
 README
 Rakefile
 ext/extconf.rb
-ext/zkc-3.2.2.tar.bz2
-ext/zookeeper_ruby.c
+ext/zkc-3.2.2.tar.gz
+ext/zookeeper_c.c
 lib/zookeeper.rb
 test/test_basic.rb
