@@ -12,47 +12,42 @@ sudo gem install zookeeper
 
 == Usage
 
-= Connect to a server
+Connect to a server:
 
   require 'rubygems'
   require 'zookeeper'
   z = ZooKeeper.new("localhost:2181")
 
-= Create, set and read nodes
+Create, set and read nodes:
 
   z.create("/bacon", "text to be stored in the new node", 0)
-  # => "/bacon"
-
   data, stat = z.get("/bacon")
-  # => ["text to be stored in the new node", #<ZkStat:0xb771be54 @ephemeralOwner=0, @ctime=1216196667669, @aversion=0, @mzxid=1008, @cversion=0, @version=0, @czxid=1008, @mtime=1216196667669>]
-
+    # => ["text to be stored in the new node"...]
+  
   z.set("/bacon", "an entirely different line of text", stat.version)
-  # => nil
-
   z.set("/bacon", "this won't work", stat.version)
-  # CZooKeeper::BadVersionError: expected version does not match actual version
+    # CZooKeeper::BadVersionError: expected version does not match actual version
 
   data, stat = z.get("/bacon")
-  # => ["an entirely different line of text", #<ZkStat:0xb77125d4 @ephemeralOwner=0, @ctime=1216196667669, @aversion=0, @mzxid=1009, @cversion=0, @version=1, @czxid=1008, @mtime=1216196704709>]
-
+    # => ["an entirely different line of text"...]
   z.delete("/bacon", stat.version)
-  # => nil
 
-= Create ephemeral and sequence nodes
+Create ephemeral and sequence nodes:
 
   z.create("/parent", "parent node", 0)
-  # => "/parent"
 
-  z.create("/parent/test-", "an ordered node that will disappear when the connection goes down", ZooKeeper::EPHEMERAL | ZooKeeper::SEQUENCE)
-  # => "/parent/test-0"
+  z.create("/parent/test-", 
+    "an ordered ephemeral node", 
+    ZooKeeper::EPHEMERAL | ZooKeeper::SEQUENCE)
+    # => "/parent/test-0"
 
-  z.create("/parent/test-", "an ordered node that will disappear when the connection goes down", ZooKeeper::EPHEMERAL | ZooKeeper::SEQUENCE)
-  # => "/parent/test-1"
+  z.create("/parent/test-", 
+    "an ordered ephemeral node", 
+    ZooKeeper::EPHEMERAL | ZooKeeper::SEQUENCE)
+    # => "/parent/test-1"
 
-= Acquire locks
+Acquire locks:
 
   z.try_acquire "/parent/lock-", "content for the lock file" do |have_lock|
     puts have_lock ? "we have the lock" : "we don't have the lock"
   end
-  # we have the lock
-  # => nil
