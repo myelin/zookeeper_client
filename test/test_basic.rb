@@ -2,7 +2,7 @@ HERE = File.expand_path(File.dirname(__FILE__))
 
 require "#{HERE}/../lib/zookeeper"
 
-z = ZooKeeper.new("localhost:2181")
+z = Zookeeper.new("localhost:2181")
 
 puts "root: #{z.get_children("/").inspect}"
 
@@ -35,7 +35,7 @@ puts "delete: #{z.delete(path, stat.version).inspect}"
 begin
   puts "exists? #{z.exists(path)}"
   raise Exception, "it shouldn't exist"
-rescue ZooKeeper::NoNodeError
+rescue Zookeeper::NoNodeError
   puts "doesn't exist - good, because we just deleted it!"
 end
 

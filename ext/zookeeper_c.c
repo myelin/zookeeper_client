@@ -1,4 +1,4 @@
-/* Ruby wrapper for the ZooKeeper C API
+/* Ruby wrapper for the Zookeeper C API
  * Phillip Pearson <pp@myelin.co.nz>
  * Eric Maland <eric@twitter.com>
  */
@@ -11,7 +11,7 @@
 #include <errno.h>
 #include <stdio.h>
 
-static VALUE ZooKeeper = Qnil;
+static VALUE Zookeeper = Qnil;
 static VALUE eNoNode = Qnil;
 static VALUE eBadVersion = Qnil;
 
@@ -71,7 +71,7 @@ static VALUE method_initialize(VALUE self, VALUE hostPort) {
 
   Check_Type(hostPort, T_STRING);
 
-  data = Data_Make_Struct(ZooKeeper, struct zk_rb_data, 0, free_zk_rb_data, zk);
+  data = Data_Make_Struct(Zookeeper, struct zk_rb_data, 0, free_zk_rb_data, zk);
 
   zoo_set_debug_level(ZOO_LOG_LEVEL_INFO);
   zoo_deterministic_conn_order(0);
@@ -413,10 +413,10 @@ static VALUE method_set_watcher(VALUE self, VALUE new_watcher) {
 }
 
 void Init_zookeeper_c() {
-  ZooKeeper = rb_define_class("CZooKeeper", rb_cObject);
+  Zookeeper = rb_define_class("CZookeeper", rb_cObject);
 
 #define DEFINE_METHOD(method, args) { \
-    rb_define_method(ZooKeeper, #method, method_ ## method, args); }
+    rb_define_method(Zookeeper, #method, method_ ## method, args); }
 
   DEFINE_METHOD(initialize, 1);
   DEFINE_METHOD(get_children, 1);
@@ -443,10 +443,10 @@ void Init_zookeeper_c() {
   DEFINE_METHOD(state, 0);
   DEFINE_METHOD(zerror, 1);
 
-  eNoNode = rb_define_class_under(ZooKeeper, "NoNodeError", rb_eRuntimeError);
-  eBadVersion = rb_define_class_under(ZooKeeper, "BadVersionError", rb_eRuntimeError);
+  eNoNode = rb_define_class_under(Zookeeper, "NoNodeError", rb_eRuntimeError);
+  eBadVersion = rb_define_class_under(Zookeeper, "BadVersionError", rb_eRuntimeError);
 
-#define EXPORT_CONST(x) { rb_define_const(ZooKeeper, #x, INT2FIX(x)); }
+#define EXPORT_CONST(x) { rb_define_const(Zookeeper, #x, INT2FIX(x)); }
 
   /* create flags */
   EXPORT_CONST(ZOO_EPHEMERAL);

@@ -1,4 +1,4 @@
-# Ruby wrapper for the ZooKeeper C API
+# Ruby wrapper for the Zookeeper C API
 # Phillip Pearson <pp@myelin.co.nz>
 
 require 'zookeeper_c'
@@ -10,7 +10,7 @@ class ZkStat
   end
 end
 
-class ZooKeeper < CZooKeeper
+class Zookeeper < CZookeeper
   def initialize(host)
     super(host)
     @watchers = {} # path => [ block, block, ... ]
@@ -23,7 +23,7 @@ class ZooKeeper < CZooKeeper
 
   def stat(path, &blk)
     exists(path, &blk)
-  rescue ZooKeeper::NoNodeError
+  rescue Zookeeper::NoNodeError
     nil
   end
 
@@ -37,7 +37,7 @@ class ZooKeeper < CZooKeeper
     create(path, "lock node", 0) unless stat(path)
 
     # attempt to obtain the lock
-    realpath = create("#{path}/lock-", value, ZooKeeper::ZOO_EPHEMERAL | ZooKeeper::ZOO_SEQUENCE)
+    realpath = create("#{path}/lock-", value, Zookeeper::ZOO_EPHEMERAL | Zookeeper::ZOO_SEQUENCE)
     #puts "created lock node #{realpath}"
 
     # see if we got it
