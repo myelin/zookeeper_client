@@ -1,6 +1,6 @@
 zookeeper
 
-An interface to the ZooKeeper distributed configuration server.
+An interface to the Zookeeper distributed configuration server.
 
 == License
 
@@ -16,7 +16,7 @@ Connect to a server:
 
   require 'rubygems'
   require 'zookeeper'
-  z = ZooKeeper.new("localhost:2181")
+  z = Zookeeper.new("localhost:2181")
 
 Create, set and read nodes:
 
@@ -26,7 +26,7 @@ Create, set and read nodes:
   
   z.set("/bacon", "an entirely different line of text", stat.version)
   z.set("/bacon", "this won't work", stat.version)
-    # CZooKeeper::BadVersionError: expected version does not match actual version
+    # CZookeeper::BadVersionError: expected version does not match actual version
 
   data, stat = z.get("/bacon")
     # => ["an entirely different line of text"...]
@@ -38,12 +38,12 @@ Create ephemeral and sequence nodes:
 
   z.create("/parent/test-", 
     "an ordered ephemeral node", 
-    ZooKeeper::EPHEMERAL | ZooKeeper::SEQUENCE)
+    Zookeeper::EPHEMERAL | Zookeeper::SEQUENCE)
     # => "/parent/test-0"
 
   z.create("/parent/test-", 
     "an ordered ephemeral node", 
-    ZooKeeper::EPHEMERAL | ZooKeeper::SEQUENCE)
+    Zookeeper::EPHEMERAL | Zookeeper::SEQUENCE)
     # => "/parent/test-1"
 
 Acquire locks:
