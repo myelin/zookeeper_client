@@ -7,7 +7,7 @@
 
 #include "ruby.h"
 
-#include "zookeeper/zookeeper.h"
+#include "c-client-src/zookeeper.h"
 #include <errno.h>
 #include <stdio.h>
 

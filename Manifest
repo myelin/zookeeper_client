@@ -1,8 +1,10 @@
 CHANGELOG
+LICENSE
 Manifest
 README
 Rakefile
-ext/zookeeper_c/extconf.rb
-ext/zookeeper_c/zookeeper_ruby.c
+ext/extconf.rb
+ext/zkc-3.2.2.tar.bz2
+ext/zookeeper_ruby.c
 lib/zookeeper.rb
 test/test_basic.rb
