@@ -1,8 +1,8 @@
 CHANGELOG
+Manifest
 README
 Rakefile
 ext/zookeeper_c/extconf.rb
 ext/zookeeper_c/zookeeper_ruby.c
-lib/zookeeper_client.rb
+lib/zookeeper.rb
 test/test_basic.rb
-Manifest
