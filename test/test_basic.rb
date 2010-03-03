@@ -1,6 +1,6 @@
-$LOAD_PATH << '/home/eric/zk-clients/lib'
-require 'rubygems'
-require 'zookeeper_client'
+HERE = File.expand_path(File.dirname(__FILE__))
+
+require "#{HERE}/../lib/zookeeper"
 
 z = ZooKeeper.new("localhost:2181")
 

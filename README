@@ -1,10 +1,16 @@
 zookeeper
 
-== DESCRIPTION:
+An interface to the ZooKeeper distributed configuration server.
 
-zookeeper is a Ruby library to interface with the ZooKeeper replicated object store / lock server.
+== License
 
-== USAGE:
+Copyright 2008 Phillip Pearson, and 2010 Twitter, Inc. Licensed under the MIT License. See the included LICENSE file. Portions copyright 2008-2010 the Apache Software Foundation, licensed under the Apache 2 license, and used with permission.
+
+== Install
+
+sudo gem install zookeeper
+
+== Usage
 
 = Connect to a server
 
