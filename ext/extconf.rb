@@ -6,8 +6,8 @@ HERE = File.expand_path(File.dirname(__FILE__))
 BUNDLE = Dir.glob("zkc-*.tar.gz").first
 BUNDLE_PATH = "c"
 
-$CFLAGS = "#{RbConfig::CONFIG['CFLAGS']} #{$CFLAGS}".gsub("$(cflags)", "")
-$LDFLAGS = "#{RbConfig::CONFIG['LDFLAGS']} #{$LDFLAGS}".gsub("$(ldflags)", "")
+$CFLAGS = "#{RbConfig::CONFIG['CFLAGS']} #{$CFLAGS}".gsub("$(cflags)", "").gsub("-arch ppc", "")
+$LDFLAGS = "#{RbConfig::CONFIG['LDFLAGS']} #{$LDFLAGS}".gsub("$(ldflags)", "").gsub("-arch ppc", "")
 $CXXFLAGS = " -std=gnu++98 #{$CFLAGS}"
 $CPPFLAGS = $ARCH_FLAG = $DLDFLAGS = ""
 
@@ -33,7 +33,7 @@ Dir.chdir(HERE) do
     raise "'#{cmd}' failed" unless system(cmd)
 
     Dir.chdir(BUNDLE_PATH) do        
-      puts(cmd = "env CFLAGS='-fPIC #{$CFLAGS}' LDFLAGS='-fPIC #{$LDFLAGS}' ./configure --prefix=#{HERE} --disable-dependency-tracking #{$EXTRA_CONF} 2>&1")
+      puts(cmd = "env CFLAGS='-fPIC #{$CFLAGS}' LDFLAGS='-fPIC #{$LDFLAGS}' ./configure --prefix=#{HERE} --without-cppunit --disable-shared --disable-dependency-tracking #{$EXTRA_CONF} 2>&1")
       raise "'#{cmd}' failed" unless system(cmd)
       puts(cmd = "make CXXFLAGS='#{$CXXFLAGS}' || true 2>&1")
       raise "'#{cmd}' failed" unless system(cmd)
