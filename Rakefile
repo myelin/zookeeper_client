@@ -1,7 +1,7 @@
 require 'echoe'
 
 Echoe.new("zookeeper") do |p|
-  p.author = "Phillip Pearson, Eric Maland, Evan Weaver"
+  p.author = "Phillip Pearson, Eric Maland, Evan Weaver, Brian Wickman"
   p.project = "fauna"
   p.summary = "An interface to the Zookeeper distributed configuration server."
   p.url = "http://blog.evanweaver.com/files/doc/fauna/zookeeper/"

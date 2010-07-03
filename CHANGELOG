@@ -1,4 +1,6 @@
 
+v0.3.0. Wickman's rewrite.
+
 v0.2.2. Fix compatibility with stock Leopard fat-binary Ruby.
 
 v0.2.1. No more camelcase classname.
@@ -6,3 +8,4 @@ v0.2.1. No more camelcase classname.
 v0.2. Bundle C dependencies, like memcached.gem.
 
 v0.1. First release.
+

@@ -1,83 +1,79 @@
 /* Ruby wrapper for the Zookeeper C API
  * Phillip Pearson <pp@myelin.co.nz>
  * Eric Maland <eric@twitter.com>
+ * Brian Wickman <wickman@twitter.com>
+ *
+ * This fork is a 90% rewrite of the original.  It takes a more evented
+ * approach to isolate the ZK state machine from the ruby interpreter via an
+ * event queue.  It's similar to the ZookeeperFFI version except that it
+ * actually works on MRI 1.8.
  */
 
 #define THREADED
 
 #include "ruby.h"
-
 #include "c-client-src/zookeeper.h"
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+#include "zookeeper_lib.h"
 
 static VALUE Zookeeper = Qnil;
-static VALUE eNoNode = Qnil;
-static VALUE eBadVersion = Qnil;
 
-struct zk_rb_data {
-  zhandle_t *zh;
-  clientid_t myid;
+struct zkrb_instance_data {
+  zhandle_t            *zh;
+  clientid_t          myid;
+  zkrb_queue_t      *queue;
 };
 
-static void watcher(zhandle_t *zh, int type, int state, const char *path, void *ctx) {
-  VALUE self, watcher_id;
-  (void)ctx;
-  return; // watchers don't work in ruby yet
+typedef enum {
+  SYNC  = 0,
+  ASYNC = 1,
+  SYNC_WATCH = 2,
+  ASYNC_WATCH = 3
+} zkrb_call_type;
 
-  self = (VALUE)zoo_get_context(zh);;
-  watcher_id = rb_intern("watcher");
+#define IS_SYNC(zkrbcall) ((zkrbcall)==SYNC || (zkrbcall)==SYNC_WATCH)
+#define IS_ASYNC(zkrbcall) ((zkrbcall)==ASYNC || (zkrbcall)==ASYNC_WATCH)
 
-  fprintf(stderr,"C watcher %d state = %d for %s.\n", type, state, (path ? path: "null"));
-  rb_funcall(self, watcher_id, 3, INT2FIX(type), INT2FIX(state), rb_str_new2(path));
-}
-
-#warning [emaland] incomplete - but easier to read!
-static void check_errors(int rc) {
-  switch (rc) {
-  case ZOK: 
-    /* all good! */ 
-    break;
-  case ZNONODE: 
-    rb_raise(eNoNode, "the node does not exist");
-    break;
-  case ZBADVERSION: 
-    rb_raise(eBadVersion, "expected version does not match actual version");
-    break;
-  default: 
-    rb_raise(rb_eRuntimeError, "unknown error returned from zookeeper: %d (%s)", rc, zerror(rc));
+static void free_zkrb_instance_data(struct zkrb_instance_data* ptr) {
+#warning [wickman] TODO: free queue
+#warning [wickman] TODO: fire off warning if queue is not empty
+  if (ptr->zh && zoo_state(ptr->zh) == ZOO_CONNECTED_STATE) {
+    zookeeper_close(ptr->zh);
   }
 }
 
-static void free_zk_rb_data(struct zk_rb_data* ptr) {
-  zookeeper_close(ptr->zh);
-}
-
-static VALUE array_from_stat(const struct Stat* stat) {
-  return rb_ary_new3(8,
-		     LL2NUM(stat->czxid),
-		     LL2NUM(stat->mzxid),
-		     LL2NUM(stat->ctime),
-		     LL2NUM(stat->mtime),
-		     INT2NUM(stat->version),
-		     INT2NUM(stat->cversion),
-		     INT2NUM(stat->aversion),
-		     LL2NUM(stat->ephemeralOwner));
-}
-
 static VALUE method_initialize(VALUE self, VALUE hostPort) {
-  VALUE data;
-  struct zk_rb_data* zk = NULL;
-
   Check_Type(hostPort, T_STRING);
 
-  data = Data_Make_Struct(Zookeeper, struct zk_rb_data, 0, free_zk_rb_data, zk);
-
+  VALUE data;
+  struct zkrb_instance_data *zk_local_ctx = NULL;
+  data = Data_Make_Struct(Zookeeper,
+           struct zkrb_instance_data,
+           0,
+           free_zkrb_instance_data,
+           zk_local_ctx);
+  zk_local_ctx->queue = zkrb_queue_alloc();
+  
   zoo_set_debug_level(ZOO_LOG_LEVEL_INFO);
   zoo_deterministic_conn_order(0);
+  
+  zkrb_calling_context *ctx =
+    zkrb_calling_context_alloc(ZKRB_GLOBAL_REQ, zk_local_ctx->queue);
 
-  zk->zh = zookeeper_init(RSTRING(hostPort)->ptr, watcher, 10000, &zk->myid, (void*)self, 0);
-  if (!zk->zh) {
+  zk_local_ctx->zh = 
+      zookeeper_init(
+          RSTRING(hostPort)->ptr,
+          zkrb_state_callback,
+          10000,
+          &zk_local_ctx->myid,
+          ctx,
+          0);
+  
+#warning [wickman] TODO handle this properly on the Ruby side rather than C side
+  if (!zk_local_ctx->zh) {
     rb_raise(rb_eRuntimeError, "error connecting to zookeeper: %d", errno);
   }
 
@@ -87,194 +83,298 @@ static VALUE method_initialize(VALUE self, VALUE hostPort) {
 }
 
 #define FETCH_DATA_PTR(x, y) \
-  struct zk_rb_data * y; \
-  Data_Get_Struct(rb_iv_get(x, "@data"), struct zk_rb_data, y)
+  struct zkrb_instance_data * y; \
+  Data_Get_Struct(rb_iv_get(x, "@data"), struct zkrb_instance_data, y)
 
-static VALUE method_get_children(VALUE self, VALUE path) {
+#define STANDARD_PREAMBLE(self, zk, reqid, path, async, watch, cb_ctx, w_ctx, call_type) \
+  if (TYPE(reqid) != T_FIXNUM && TYPE(reqid) != T_BIGNUM) {             \
+    rb_raise(rb_eTypeError, "reqid must be Fixnum/Bignum");             \
+    return Qnil;                                                        \
+  }                                                                     \
+  Check_Type(path, T_STRING);                                           \
+  struct zkrb_instance_data * zk;                                       \
+  Data_Get_Struct(rb_iv_get(self, "@data"), struct zkrb_instance_data, zk); \
+  zkrb_calling_context* cb_ctx =                                        \
+    (async != Qfalse && async != Qnil) ?                                \
+       zkrb_calling_context_alloc(NUM2LL(reqid), zk->queue) :       \
+       NULL;                                                            \
+  zkrb_calling_context* w_ctx =                                         \
+    (watch != Qfalse && watch != Qnil) ?                                \
+       zkrb_calling_context_alloc(NUM2LL(reqid), zk->queue) :       \
+       NULL;                                                            \
+  int a  = (async != Qfalse && async != Qnil);                          \
+  int w  = (watch != Qfalse && watch != Qnil);                          \
+  zkrb_call_type call_type;                                             \
+  if (a) { if (w) { call_type = ASYNC_WATCH; } else { call_type = ASYNC; } } \
+    else { if (w) { call_type =  SYNC_WATCH; } else { call_type = SYNC; } }
+
+static VALUE method_get_children(VALUE self, VALUE reqid, VALUE path, VALUE async, VALUE watch) {
+  STANDARD_PREAMBLE(self, zk, reqid, path, async, watch, data_ctx, watch_ctx, call_type);
+  
   struct String_vector strings;
-  int i;
-  VALUE output;
+  struct Stat stat;
+  
+  int rc;
+  switch (call_type) {
+    case SYNC:
+      rc = zoo_get_children2(zk->zh, RSTRING(path)->ptr, 0, &strings, &stat);
+      break;
 
-  Check_Type(path, T_STRING);
-  FETCH_DATA_PTR(self, zk);
+    case SYNC_WATCH:
+      rc = zoo_wget_children2(zk->zh, RSTRING(path)->ptr, zkrb_state_callback, watch_ctx, &strings, &stat);
+      break;
+      
+    case ASYNC:
+      rc = zoo_aget_children2(zk->zh, RSTRING(path)->ptr, 0, zkrb_strings_stat_callback, data_ctx);
+      break;
+      
+    case ASYNC_WATCH:
+      rc = zoo_awget_children2(zk->zh, RSTRING(path)->ptr, zkrb_state_callback, watch_ctx, zkrb_strings_stat_callback, data_ctx);
+      break;
+  }
 
-  check_errors(zoo_get_children(zk->zh, RSTRING(path)->ptr, 0, &strings));
-
-  output = rb_ary_new();
-  for (i = 0; i < strings.count; ++i) {
-    rb_ary_push(output, rb_str_new2(strings.data[i]));
+  VALUE output = rb_ary_new();
+  rb_ary_push(output, INT2FIX(rc));
+  if (IS_SYNC(call_type) && rc == ZOK) {
+    rb_ary_push(output, zkrb_string_vector_to_ruby(&strings));
+    rb_ary_push(output, zkrb_stat_to_rarray(&stat));
   }
   return output;
 }
 
-static VALUE method_exists(VALUE self, VALUE path, VALUE watch) {
+static VALUE method_exists(VALUE self, VALUE reqid, VALUE path, VALUE async, VALUE watch) {
+  STANDARD_PREAMBLE(self, zk, reqid, path, async, watch, data_ctx, watch_ctx, call_type);
+  
   struct Stat stat;
 
-  Check_Type(path, T_STRING);
-  FETCH_DATA_PTR(self, zk);
+  int rc;
+  switch (call_type) {
+    case SYNC:
+      rc = zoo_exists(zk->zh, RSTRING(path)->ptr, 0, &stat);
+      break;
 
-  check_errors(zoo_exists(zk->zh, RSTRING(path)->ptr, (watch != Qfalse && watch != Qnil), &stat));
+    case SYNC_WATCH:
+      rc = zoo_wexists(zk->zh, RSTRING(path)->ptr, zkrb_state_callback, watch_ctx, &stat);
+      break;
+      
+    case ASYNC:
+      rc = zoo_aexists(zk->zh, RSTRING(path)->ptr, 0, zkrb_stat_callback, data_ctx);
+      break;
+      
+    case ASYNC_WATCH:
+      rc = zoo_awexists(zk->zh, RSTRING(path)->ptr, zkrb_state_callback, watch_ctx, zkrb_stat_callback, data_ctx);
+      break;
+  }
 
-  return array_from_stat(&stat);
+  VALUE output = rb_ary_new();
+  rb_ary_push(output, INT2FIX(rc));
+  if (IS_SYNC(call_type) && rc == ZOK) {
+    rb_ary_push(output, zkrb_stat_to_rarray(&stat));
+  }
+  return output;
 }
 
-static VALUE method_create(VALUE self, VALUE path, VALUE value, VALUE flags) {
-  char realpath[10240];
-
-  Check_Type(path, T_STRING);
-  Check_Type(value, T_STRING);
+static VALUE method_create(VALUE self, VALUE reqid, VALUE path, VALUE data, VALUE async, VALUE acls, VALUE flags) {
+  VALUE watch = Qfalse;
+  STANDARD_PREAMBLE(self, zk, reqid, path, async, watch, data_ctx, watch_ctx, call_type);
+  
+  struct Stat stat;
+  if (data != Qnil) Check_Type(data, T_STRING);
   Check_Type(flags, T_FIXNUM);
+  const char *data_ptr = (data == Qnil) ? NULL : RSTRING(data)->ptr;
+  size_t      data_len = (data == Qnil) ? -1   : RSTRING(data)->len;
+  
+  struct ACL_vector *aclptr = NULL;
+  if (acls != Qnil) { aclptr = zkrb_ruby_to_aclvector(acls); }
+  char realpath[16384];
 
-  FETCH_DATA_PTR(self, zk);
+  int rc;
+  switch (call_type) {
+    case SYNC:
+      rc = zoo_create(zk->zh, RSTRING(path)->ptr, data_ptr, data_len, aclptr, FIX2INT(flags), realpath, sizeof(realpath));
+      if (aclptr != NULL) deallocate_ACL_vector(aclptr);
+      break;
+    case ASYNC:
+      rc = zoo_acreate(zk->zh, RSTRING(path)->ptr, data_ptr, data_len, aclptr, FIX2INT(flags), zkrb_string_callback, data_ctx);
+      if (aclptr != NULL) deallocate_ACL_vector(aclptr);
+      break;
+    default:
+      /* TODO(wickman) raise proper argument error */
+      return Qnil;
+      break;
+  }
 
-  check_errors(zoo_create(zk->zh, RSTRING(path)->ptr, 
-                          RSTRING(value)->ptr, RSTRING(value)->len,
-			  &ZOO_OPEN_ACL_UNSAFE, FIX2INT(flags), 
-                          realpath, sizeof(realpath)));
-
-  return rb_str_new2(realpath);
+  VALUE output = rb_ary_new();
+  rb_ary_push(output, INT2FIX(rc));
+  if (IS_SYNC(call_type) && rc == ZOK) {
+    return rb_ary_push(output, rb_str_new2(realpath));
+  }
+  return output;
 }
 
-static VALUE method_delete(VALUE self, VALUE path, VALUE version) {
-  Check_Type(path, T_STRING);
+static VALUE method_delete(VALUE self, VALUE reqid, VALUE path, VALUE version, VALUE async) {
+  VALUE watch = Qfalse; 
+  STANDARD_PREAMBLE(self, zk, reqid, path, async, watch, data_ctx, watch_ctx, call_type);
   Check_Type(version, T_FIXNUM);
+  
+  int rc = 0;
+  switch (call_type) {
+    case SYNC:
+      rc = zoo_delete(zk->zh, RSTRING(path)->ptr, FIX2INT(version));
+      break;
+    case ASYNC:
+      rc = zoo_adelete(zk->zh, RSTRING(path)->ptr, FIX2INT(version), zkrb_void_callback, data_ctx);
+      break;
+    default:
+      /* TODO(wickman) raise proper argument error */
+      return Qnil;
+      break;
+  }
 
-  FETCH_DATA_PTR(self, zk);
-
-  check_errors(zoo_delete(zk->zh, RSTRING(path)->ptr, FIX2INT(version)));
-
-  return Qtrue;
+  return INT2FIX(rc);
 }
 
-static VALUE method_get(VALUE self, VALUE path) {
-  char data[1024];
-  int data_len = sizeof(data);
 
+#define MAX_ZNODE_SIZE 1048576
+
+static VALUE method_get(VALUE self, VALUE reqid, VALUE path, VALUE async, VALUE watch) {
+  STANDARD_PREAMBLE(self, zk, reqid, path, async, watch, data_ctx, watch_ctx, call_type);
+
+  /* ugh */
+  char * data = malloc(MAX_ZNODE_SIZE);
+  int data_len = MAX_ZNODE_SIZE;
   struct Stat stat;
-  memset(data, 0, sizeof(data));
 
-  Check_Type(path, T_STRING);
+  int rc;
+  switch (call_type) {
+    case SYNC:
+      rc = zoo_get(zk->zh, RSTRING(path)->ptr, 0, data, &data_len, &stat);
+      break;
+
+    case SYNC_WATCH:
+      rc = zoo_wget(zk->zh, RSTRING(path)->ptr, zkrb_state_callback, watch_ctx, data, &data_len, &stat);
+      break;
+      
+    case ASYNC:
+      rc = zoo_aget(zk->zh, RSTRING(path)->ptr, 0, zkrb_data_callback, data_ctx);
+      break;
+      
+    case ASYNC_WATCH:
+      rc = zoo_awget(zk->zh, RSTRING(path)->ptr, zkrb_state_callback, watch_ctx, zkrb_data_callback, data_ctx);
+      break;
+  }
+
+  VALUE output = rb_ary_new();
+  rb_ary_push(output, INT2FIX(rc));
+  if (IS_SYNC(call_type) && rc == ZOK) {
+    rb_ary_push(output, rb_str_new(data, data_len));
+    rb_ary_push(output, zkrb_stat_to_rarray(&stat));
+  }
+  free(data);
+  return output;
+}
+
+static VALUE method_set(VALUE self, VALUE reqid, VALUE path, VALUE data, VALUE async, VALUE version) {
+  VALUE watch = Qfalse;
+  STANDARD_PREAMBLE(self, zk, reqid, path, async, watch, data_ctx, watch_ctx, call_type);
+  
+  struct Stat stat;
+  if (data != Qnil) Check_Type(data, T_STRING);
+  const char *data_ptr = (data == Qnil) ? NULL : RSTRING(data)->ptr;
+  size_t      data_len = (data == Qnil) ? -1   : RSTRING(data)->len;
+
+  int rc;
+  switch (call_type) {
+    case SYNC:
+      rc = zoo_set2(zk->zh, RSTRING(path)->ptr, data_ptr, data_len, FIX2INT(version), &stat);
+      break;
+    case ASYNC:
+      rc = zoo_aset(zk->zh, RSTRING(path)->ptr, data_ptr, data_len, FIX2INT(version),
+                            zkrb_stat_callback, data_ctx);
+      break;
+    default:
+      /* TODO(wickman) raise proper argument error */
+      return Qnil;
+      break;
+  }
+
+  VALUE output = rb_ary_new();
+  rb_ary_push(output, INT2FIX(rc));
+  if (IS_SYNC(call_type) && rc == ZOK) {
+    rb_ary_push(output, zkrb_stat_to_rarray(&stat));
+  }
+  return output;
+}
+
+static VALUE method_set_acl(VALUE self, VALUE reqid, VALUE path, VALUE acls, VALUE async, VALUE version) {
+  VALUE watch = Qfalse;
+  STANDARD_PREAMBLE(self, zk, reqid, path, async, watch, data_ctx, watch_ctx, call_type);
+  struct ACL_vector * aclptr = zkrb_ruby_to_aclvector(acls);
+
+  int rc;
+  switch (call_type) {
+    case SYNC:
+      rc = zoo_set_acl(zk->zh, RSTRING(path)->ptr, FIX2INT(version), aclptr);
+      deallocate_ACL_vector(aclptr);
+      break;
+    case ASYNC:
+      rc = zoo_aset_acl(zk->zh, RSTRING(path)->ptr, FIX2INT(version), aclptr, zkrb_void_callback, data_ctx);
+      deallocate_ACL_vector(aclptr);
+      break;
+    default:
+      /* TODO(wickman) raise proper argument error */
+      return Qnil;
+      break;
+  }
+
+  return INT2FIX(rc);
+}
+
+static VALUE method_get_acl(VALUE self, VALUE reqid, VALUE path, VALUE async) {
+  VALUE watch = Qfalse;
+  STANDARD_PREAMBLE(self, zk, reqid, path, async, watch, data_ctx, watch_ctx, call_type);
+
+  struct ACL_vector acls;
+  struct Stat stat;
+  
+  int rc;
+  switch (call_type) {
+    case SYNC:
+      rc = zoo_get_acl(zk->zh, RSTRING(path)->ptr, &acls, &stat);
+      break;
+    case ASYNC:
+      rc = zoo_aget_acl(zk->zh, RSTRING(path)->ptr, zkrb_acl_callback, data_ctx);
+      break;
+    default:
+      /* TODO(wickman) raise proper argument error */
+      return Qnil;
+      break;
+  }
+
+  // do we need to deallocate the strings in the acl vector????
+  VALUE output = rb_ary_new();
+  rb_ary_push(output, INT2FIX(rc));
+  if (IS_SYNC(call_type) && rc == ZOK) {
+    rb_ary_push(output, zkrb_acl_vector_to_ruby(&acls));
+    rb_ary_push(output, zkrb_stat_to_rarray(&stat));
+  }
+  return output;
+}
+
+static VALUE method_get_next_event(VALUE self) {
   FETCH_DATA_PTR(self, zk);
   
-  check_errors(zoo_get(zk->zh, RSTRING(path)->ptr, 0, data, &data_len, &stat));
+  zkrb_event_t *event = zkrb_dequeue(zk->queue);
+  if (event == NULL) return Qnil;
 
-  return rb_ary_new3(2,
-		     rb_str_new(data, data_len),
-		     array_from_stat(&stat));
+  VALUE hash = zkrb_event_to_ruby(event);
+  zkrb_event_free(event);
+  return hash;
 }
 
-static VALUE method_set(int argc, VALUE* argv, VALUE self)
-{
-  VALUE v_path, v_data, v_version;
-  int real_version = -1;
-
+static VALUE method_has_events(VALUE self) {
   FETCH_DATA_PTR(self, zk);
-
-  rb_scan_args(argc, argv, "21", &v_path, &v_data, &v_version);
-  
-  Check_Type(v_path, T_STRING);
-  Check_Type(v_data, T_STRING);
-  Check_Type(v_version, T_FIXNUM);
-
-  if(!NIL_P(v_version))
-    real_version = FIX2INT(v_version);
-
-  check_errors(zoo_set(zk->zh, 
-                       RSTRING(v_path)->ptr, 
-                       RSTRING(v_data)->ptr, RSTRING(v_data)->len, 
-                       FIX2INT(v_version)));
-
-  return Qtrue;
-}
-
-static void void_completion_callback(int rc, const void *data) {
-
-}
-
-static void string_completion_callback(int rc, const char *value, const void *data) {
-  
-}
-
-#warning [emaland] to be implemented
-static VALUE method_set2(int argc, VALUE *argv, VALUE self) {
-  //  ZOOAPI int zoo_set2(zhandle_t *zh, const char *path, const char *buffer,
-  //                    int buflen, int version, struct Stat *stat);
-  return Qnil;
-
-}
-
-static VALUE method_set_acl(int argc, VALUE* argv, VALUE self) {
-/* STUB */
-/*   VALUE v_path, v_data, v_version; */
-/*   struct zk_rb_data* zk; */
-/*   int real_version = -1; */
-
-/*   rb_scan_args(argc, argv, "21", &v_path, &v_data, &v_version); */
-  
-/*   Check_Type(v_path, T_STRING); */
-/*   Check_Type(v_data, T_STRING); */
-/*   Check_Type(v_version, T_FIXNUM); */
-
-/*   if(!NIL_P(v_version)) */
-/*     real_version = FIX2INT(v_version); */
-
-/*   Data_Get_Struct(rb_iv_get(self, "@data"), struct zk_rb_data, zk); */
-  
-/*   check_errors(zoo_set(zk->zh, RSTRING(v_path)->ptr,  */
-/*                        RSTRING(v_data)->ptr, RSTRING(v_data)->len,  */
-/*                        FIX2INT(v_version))); */
-
-  return Qnil;
-}
-
-/*
-        PARAMETERS:
-         zh: the zookeeper handle obtained by a call to zookeeper.init
-         scheme: the id of authentication scheme. Natively supported:
-        'digest' password-based authentication
-         cert: application credentials. The actual value depends on the scheme.
-         completion: the routine to invoke when the request completes. One of 
-        the following result codes may be passed into the completion callback:
-        OK operation completed successfully
-        AUTHFAILED authentication failed 
-        
-        RETURNS:
-        OK on success or one of the following errcodes on failure:
-        BADARGUMENTS - invalid input parameters
-        INVALIDSTATE - zhandle state is either SESSION_EXPIRED_STATE or AUTH_FAI
-LED_STATE
-        MARSHALLINGERROR - failed to marshall a request; possibly, out of memory
-        SYSTEMERROR - a system error occured
-*/
-#warning [emaland] make these magically synchronous for now?
-static VALUE method_add_auth(VALUE self, VALUE scheme, 
-                             VALUE cert, VALUE completion, 
-                             VALUE completion_data) {
-  struct zk_rb_data* zk;
-  Data_Get_Struct(rb_iv_get(self, "@data"), struct zk_rb_data, zk);
-
-  Check_Type(scheme, T_STRING);
-  Check_Type(cert, T_STRING);
-  //  Check_Type(completion, T_OBJECT); // ???
-  
-  check_errors(zoo_add_auth(zk->zh, RSTRING(scheme)->ptr,
-                            RSTRING(cert)->ptr, RSTRING(cert)->len,
-                            void_completion_callback, DATA_PTR(completion_data)));
-  return Qtrue;
-}
-
-static VALUE method_async(VALUE self, VALUE path, 
-                          VALUE completion, VALUE completion_data) {
-  struct zk_rb_data* zk;
-  Data_Get_Struct(rb_iv_get(self, "@data"), struct zk_rb_data, zk);
-
-  Check_Type(path, T_STRING);
-  //  Check_Type(completion, T_OBJECT); // ???
-  
-  check_errors(zoo_async(zk->zh, RSTRING(path)->ptr,
-                         string_completion_callback, DATA_PTR(completion_data)));
-
-  return Qtrue;
+  return zkrb_peek(zk->queue) != NULL ? Qtrue : Qfalse;
 }
 
 static VALUE method_client_id(VALUE self) {
@@ -285,8 +385,8 @@ static VALUE method_client_id(VALUE self) {
 
 static VALUE method_close(VALUE self) {
   FETCH_DATA_PTR(self, zk);
-  check_errors(zookeeper_close(zk->zh));
-  return Qtrue;
+  int rc = zookeeper_close(zk->zh);
+  return INT2FIX(rc);
 }
 
 static VALUE method_deterministic_conn_order(VALUE self, VALUE yn) {
@@ -294,101 +394,9 @@ static VALUE method_deterministic_conn_order(VALUE self, VALUE yn) {
   return Qnil;
 }
 
-static VALUE id_to_ruby(struct Id *id) {
-  VALUE hash = rb_hash_new();
-  rb_hash_aset(hash, rb_str_new2("scheme"), rb_str_new2(id->scheme));
-  rb_hash_aset(hash, rb_str_new2("id"), rb_str_new2(id->id));
-  return hash;
-}
-
-static VALUE acl_to_ruby(struct ACL *acl) {
-  VALUE hash = rb_hash_new();
-  rb_hash_aset(hash, rb_str_new2("perms"), INT2NUM(acl->perms));
-  rb_hash_aset(hash, rb_str_new2("id"), id_to_ruby(&(acl->id)));
-  return hash;
-}
-
-static VALUE acl_vector_to_ruby(struct ACL_vector *acl_vector) {
-  int i = 0;
-  VALUE ary = rb_ary_new();
-  for(i = 0; i < acl_vector->count; i++) {
-    rb_ary_push(ary, acl_to_ruby(acl_vector->data+i));
-  }
-  return ary;
-}
-
-/*
-  struct Stat {
-    int64_t czxid;
-    int64_t mzxid;
-    int64_t ctime;
-    int64_t mtime;
-    int32_t version;
-    int32_t cversion;
-    int32_t aversion;
-    int64_t ephemeralOwner;
-    int32_t dataLength;
-    int32_t numChildren;
-    int64_t pzxid;
-  }
-}
-*/
-static VALUE stat_to_ruby(struct Stat *stat) {
-  VALUE hash = rb_hash_new();
-  rb_hash_aset(hash, rb_str_new2("czxid"), UINT2NUM(stat->czxid));
-  rb_hash_aset(hash, rb_str_new2("mzxid"), UINT2NUM(stat->mzxid));
-  rb_hash_aset(hash, rb_str_new2("ctime"), UINT2NUM(stat->ctime));
-  rb_hash_aset(hash, rb_str_new2("mtime"), UINT2NUM(stat->mtime));
-  rb_hash_aset(hash, rb_str_new2("version"), INT2NUM(stat->version));
-  rb_hash_aset(hash, rb_str_new2("cversion"), INT2NUM(stat->cversion));
-  rb_hash_aset(hash, rb_str_new2("aversion"), INT2NUM(stat->aversion));
-  rb_hash_aset(hash, rb_str_new2("ephemeralOwner"), UINT2NUM(stat->ephemeralOwner));
-  rb_hash_aset(hash, rb_str_new2("dataLength"), INT2NUM(stat->dataLength));
-  rb_hash_aset(hash, rb_str_new2("numChildren"), INT2NUM(stat->numChildren));
-  rb_hash_aset(hash, rb_str_new2("pzxid"), UINT2NUM(stat->pzxid));
-  return hash;
-}
-
-static VALUE method_get_acl(VALUE self, VALUE path) {
-  FETCH_DATA_PTR(self, zk);
-  Check_Type(path, T_STRING);
-
-  //  ZOOAPI int zoo_get_acl(zhandle_t *zh, const char *path, struct ACL_vector *acl,
-  //                     struct Stat *stat);
-  struct ACL_vector acl;
-  struct Stat stat;
-  check_errors(zoo_get_acl(zk->zh, RSTRING(path)->ptr, &acl, &stat));
-
-  VALUE result = rb_ary_new();
-  rb_ary_push(result, acl_vector_to_ruby(&acl));
-  rb_ary_push(result, stat_to_ruby(&stat));
-  return result;
-}
-
 static VALUE method_is_unrecoverable(VALUE self) {
   FETCH_DATA_PTR(self, zk);
-  if(is_unrecoverable(zk->zh) == ZINVALIDSTATE)
-    return Qtrue;
-
-  return Qfalse;
-}
-
-static VALUE method_recv_timeout(VALUE self) {
-  FETCH_DATA_PTR(self, zk);
-  return INT2NUM(zoo_recv_timeout(zk->zh));
-}
-
-#warning [emaland] make this a class method or global
-static VALUE method_set_debug_level(VALUE self, VALUE level) {
-  FETCH_DATA_PTR(self, zk);
-  Check_Type(level, T_FIXNUM);
-  zoo_set_debug_level(FIX2INT(level));
-  return Qnil;
-}
-
-#warning [emaland] make this a class method or global
-static VALUE method_zerror(VALUE self, VALUE errc) {
-  return rb_str_new2(zerror(FIX2INT(errc)));
+  return is_unrecoverable(zk->zh) == ZINVALIDSTATE ? Qtrue : Qfalse;
 }
 
 static VALUE method_state(VALUE self) {
@@ -396,123 +404,60 @@ static VALUE method_state(VALUE self) {
   return INT2NUM(zoo_state(zk->zh));
 }
 
-#warning [emaland] make this a class method or global
-static VALUE method_set_log_stream(VALUE self, VALUE stream) {
-  // convert stream to FILE*
-  FILE *fp_stream = (FILE*)stream;
-  zoo_set_log_stream(fp_stream);
-  return Qnil;
-}
-
-static VALUE method_set_watcher(VALUE self, VALUE new_watcher) {
+static VALUE method_recv_timeout(VALUE self) {
   FETCH_DATA_PTR(self, zk);
-#warning [emaland] needs to be tested/implemented
-  return Qnil;
-  //  watcher_fn old_watcher = zoo_set_watcher(zk->zh, new_watcher);
-  //  return old_watcher;
+  return INT2NUM(zoo_recv_timeout(zk->zh));
 }
 
-void Init_zookeeper_c() {
-  Zookeeper = rb_define_class("CZookeeper", rb_cObject);
+// how do you make a class method??
+static VALUE method_set_debug_level(VALUE self, VALUE level) {
+  Check_Type(level, T_FIXNUM);
+  ZKRBDebugging = (FIX2INT(level) == ZOO_LOG_LEVEL_DEBUG);
+  zoo_set_debug_level(FIX2INT(level));
+  return Qnil;
+}
 
+static VALUE method_zerror(VALUE self, VALUE errc) {
+  return rb_str_new2(zerror(FIX2INT(errc)));
+}
+
+static void zkrb_define_methods(void) {
 #define DEFINE_METHOD(method, args) { \
     rb_define_method(Zookeeper, #method, method_ ## method, args); }
+#define DEFINE_CLASS_METHOD(method, args) { \
+    rb_define_singleton_method(Zookeeper, #method, method_ ## method, args); }
 
   DEFINE_METHOD(initialize, 1);
-  DEFINE_METHOD(get_children, 1);
-  DEFINE_METHOD(exists, 2);
-  DEFINE_METHOD(create, 3);
-  DEFINE_METHOD(delete, 2);
-  DEFINE_METHOD(get, 1);
-  DEFINE_METHOD(set, -1);
-
-  /* TODO */
-  DEFINE_METHOD(add_auth, 3);
-  DEFINE_METHOD(set_acl, -1);
-  DEFINE_METHOD(async, 1);
+  DEFINE_METHOD(get_children, 4);
+  DEFINE_METHOD(exists, 4);
+  DEFINE_METHOD(create, 6);
+  DEFINE_METHOD(delete, 4);
+  DEFINE_METHOD(get, 4);
+  DEFINE_METHOD(set, 5);
+  DEFINE_METHOD(set_acl, 5);
+  DEFINE_METHOD(get_acl, 3);  
   DEFINE_METHOD(client_id, 0);
   DEFINE_METHOD(close, 0);
   DEFINE_METHOD(deterministic_conn_order, 1);
-  DEFINE_METHOD(get_acl, 2);
   DEFINE_METHOD(is_unrecoverable, 0);
   DEFINE_METHOD(recv_timeout, 1);
-  DEFINE_METHOD(set2, -1);
-  DEFINE_METHOD(set_debug_level, 1);
-  DEFINE_METHOD(set_log_stream, 1);
-  DEFINE_METHOD(set_watcher, 2);
   DEFINE_METHOD(state, 0);
+  // TODO
+  // DEFINE_METHOD(add_auth, 3);
+  // DEFINE_METHOD(async, 1);
+
+  // methods for the ruby-side event manager  
+  DEFINE_METHOD(get_next_event, 0);
+  DEFINE_METHOD(has_events, 0);
+
+  // Make these class methods?  
+  DEFINE_METHOD(set_debug_level, 1);
   DEFINE_METHOD(zerror, 1);
+}
+void Init_zookeeper_c() {
+  ZKRBDebugging = 0;
 
-  eNoNode = rb_define_class_under(Zookeeper, "NoNodeError", rb_eRuntimeError);
-  eBadVersion = rb_define_class_under(Zookeeper, "BadVersionError", rb_eRuntimeError);
-
-#define EXPORT_CONST(x) { rb_define_const(Zookeeper, #x, INT2FIX(x)); }
-
-  /* create flags */
-  EXPORT_CONST(ZOO_EPHEMERAL);
-  EXPORT_CONST(ZOO_SEQUENCE);
-
-  /* 
-     session state
-  */
-  EXPORT_CONST(ZOO_EXPIRED_SESSION_STATE);
-  EXPORT_CONST(ZOO_AUTH_FAILED_STATE);
-  EXPORT_CONST(ZOO_CONNECTING_STATE);
-  EXPORT_CONST(ZOO_ASSOCIATING_STATE);
-  EXPORT_CONST(ZOO_CONNECTED_STATE);
-
-  /* notifications */
-  EXPORT_CONST(ZOOKEEPER_WRITE);
-  EXPORT_CONST(ZOOKEEPER_READ);
-
-  /* errors */
-  EXPORT_CONST(ZOK);
-  EXPORT_CONST(ZSYSTEMERROR);
-  EXPORT_CONST(ZRUNTIMEINCONSISTENCY);
-  EXPORT_CONST(ZDATAINCONSISTENCY);
-  EXPORT_CONST(ZCONNECTIONLOSS);
-  EXPORT_CONST(ZMARSHALLINGERROR);
-  EXPORT_CONST(ZUNIMPLEMENTED);
-  EXPORT_CONST(ZOPERATIONTIMEOUT);
-  EXPORT_CONST(ZBADARGUMENTS);
-  EXPORT_CONST(ZINVALIDSTATE);
-
-  /** API errors. */
-  EXPORT_CONST(ZAPIERROR);
-  EXPORT_CONST(ZNONODE);
-  EXPORT_CONST(ZNOAUTH);
-  EXPORT_CONST(ZBADVERSION);
-  EXPORT_CONST(ZNOCHILDRENFOREPHEMERALS);
-  EXPORT_CONST(ZNODEEXISTS);
-  EXPORT_CONST(ZNOTEMPTY);
-  EXPORT_CONST(ZSESSIONEXPIRED);
-  EXPORT_CONST(ZINVALIDCALLBACK);
-  EXPORT_CONST(ZINVALIDACL);
-  EXPORT_CONST(ZAUTHFAILED);
-  EXPORT_CONST(ZCLOSING);
-  EXPORT_CONST(ZNOTHING);
-  EXPORT_CONST(ZSESSIONMOVED);
-
-  /* debug levels */
-  EXPORT_CONST(ZOO_LOG_LEVEL_ERROR);
-  EXPORT_CONST(ZOO_LOG_LEVEL_WARN);
-  EXPORT_CONST(ZOO_LOG_LEVEL_INFO);
-  EXPORT_CONST(ZOO_LOG_LEVEL_DEBUG);
-
-  /* ACL constants */
-  EXPORT_CONST(ZOO_PERM_READ);
-  EXPORT_CONST(ZOO_PERM_WRITE);
-  EXPORT_CONST(ZOO_PERM_CREATE);
-  EXPORT_CONST(ZOO_PERM_DELETE);
-  EXPORT_CONST(ZOO_PERM_ADMIN);
-  EXPORT_CONST(ZOO_PERM_ALL);
-
-  /* Watch types */
-  EXPORT_CONST(ZOO_CREATED_EVENT);
-  EXPORT_CONST(ZOO_DELETED_EVENT);
-  EXPORT_CONST(ZOO_CHANGED_EVENT);
-  EXPORT_CONST(ZOO_CHILD_EVENT);
-  EXPORT_CONST(ZOO_SESSION_EVENT);
-  EXPORT_CONST(ZOO_NOTWATCHING_EVENT);
-  
+  /* initialize Zookeeper class */
+  Zookeeper = rb_define_class("CZookeeper", rb_cObject);
+  zkrb_define_methods();
 }
