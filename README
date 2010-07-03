@@ -4,14 +4,10 @@ An interface to the Zookeeper distributed configuration server.
 
 == License
 
-<<<<<<< HEAD
-Copyright 2008 Phillip Pearson, and 2010 Twitter, Inc. Licensed under the MIT License. See the included LICENSE file. Portions copyright 2008-2010 the Apache Software Foundation, licensed under the Apache 2 license, and used with permission.
-=======
 Copyright 2008 Phillip Pearson, and 2010 Twitter, Inc. Licensed under the
 MIT License.  See the included LICENSE file.  Portions copyright 2008-2010
 the Apache Software Foundation, licensed under the Apache 2 license, and
 used with permission.
->>>>>>> wickman
 
 == Install
 
@@ -24,7 +20,6 @@ Connect to a server:
   require 'rubygems'
   require 'zookeeper'
   z = Zookeeper.new("localhost:2181")
-<<<<<<< HEAD
 
 Create, set and read nodes:
 
@@ -54,12 +49,6 @@ Create ephemeral and sequence nodes:
     Zookeeper::EPHEMERAL | Zookeeper::SEQUENCE)
     # => "/parent/test-1"
 
-Acquire locks:
-
-  z.try_acquire "/parent/lock-", "content for the lock file" do |have_lock|
-    puts have_lock ? "we have the lock" : "we don't have the lock"
-  end
-=======
   z.get_children(:path => "/")
 
 == Idioms
@@ -80,4 +69,4 @@ Acquire locks:
   Calls take a dictionary of parameters.  With the exception of set_acl, the
   only required parameter is :path.  Each call returns a dictionary with at
   minimum two keys :req_id and :rc.
->>>>>>> wickman
+
