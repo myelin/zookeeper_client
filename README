@@ -23,33 +23,41 @@ Connect to a server:
 
 Create, set and read nodes:
 
-  z.create("/bacon", "text to be stored in the new node", 0)
-  data, stat = z.get("/bacon")
-    # => ["text to be stored in the new node"...]
-  
-  z.set("/bacon", "an entirely different line of text", stat.version)
-  z.set("/bacon", "this won't work", stat.version)
-    # CZookeeper::BadVersionError: expected version does not match actual version
+    z.create(:path => "/bacon", :data => "text to be stored in the new node")
+  => {:req_id=>1, :rc=>0, :path=>"/bacon"}
 
-  data, stat = z.get("/bacon")
-    # => ["an entirely different line of text"...]
-  z.delete("/bacon", stat.version)
+    data = z.get(:path => "/bacon")
+    => {:req_id=>2, :rc=>0, :data=>"text to be stored in the new node", :stat=>#<ZookeeperStat::Stat:0x000001009a5280 @exists=true, @czxid=338, @mzxid=338, @ctime=1305577245785, @mtime=1305577245785, @version=0, @cversion=0, @aversion=0, @ephemeralOwner=0, @dataLength=33, @numChildren=0, @pzxid=338>}
+  
+    z.set(:path => "/bacon", :text => "an entirely different line of text", data[:stat].version)
+
+    z.set(:path => "/bacon", :text => "this won't work", data[:stat].version)
+    # CZookeeper::BadVersionError: expected version does not match actual version
+    => {:req_id=>17, :rc=>-103, :stat=>#<ZookeeperStat::Stat:0x000001009a4330 @exists=false>} 
+
+    data = z.get(:path => "/bacon")
+
+    z.delete(:path => "/bacon", :version => data[:stat].version)
 
 Create ephemeral and sequence nodes:
 
-  z.create("/parent", "parent node", 0)
+    z.create(:path => "/parent", :data => "parent node")
 
-  z.create("/parent/test-", 
-    "an ordered ephemeral node", 
-    Zookeeper::EPHEMERAL | Zookeeper::SEQUENCE)
+    z.create(:path => "/parent/test-", 
+             :data => "an ordered ephemeral node", 
+             :ephemeral => true,
+             :sequence => true)
     # => "/parent/test-0"
 
-  z.create("/parent/test-", 
-    "an ordered ephemeral node", 
-    Zookeeper::EPHEMERAL | Zookeeper::SEQUENCE)
+    z.create(:path => "/parent/test-",
+           :data => "an ordered ephemeral node",
+           :ephemeral => true,
+           :sequence => true) 
     # => "/parent/test-1"
 
-  z.get_children(:path => "/")
+    z.get_children(:path => "/parent")
+
+    => {:req_id=>31, :rc=>0, :children=>["test-0000000000", "test-0000000001"], :stat=>#<ZookeeperStat::Stat:0x00000100968c90 @exists=true, @czxid=360, @mzxid=360, @ctime=1305578801716, @mtime=1305578801716, @version=0, @cversion=2, @aversion=0, @ephemeralOwner=0, @dataLength=11, @numChildren=2, @pzxid=362>} 
 
 == Idioms
 
